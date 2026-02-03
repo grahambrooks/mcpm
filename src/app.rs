@@ -239,12 +239,9 @@ impl App {
     }
 
     async fn handle_dashboard_key(&mut self, key: KeyEvent) -> Result<()> {
-        match key.code {
-            KeyCode::Char('r') => {
-                self.load_ides().await;
-                self.state.status_message = Some("Refreshed IDE information".to_string());
-            }
-            _ => {}
+        if let KeyCode::Char('r') = key.code {
+            self.load_ides().await;
+            self.state.status_message = Some("Refreshed IDE information".to_string());
         }
         Ok(())
     }

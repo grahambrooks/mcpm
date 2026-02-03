@@ -48,7 +48,7 @@ impl<'a> SyncService<'a> {
 
             let target_servers = target_adapter.get_servers_map().await?;
 
-            for (name, _config) in &servers_to_sync {
+            for name in servers_to_sync.keys() {
                 let action = if target_servers.contains_key(name) {
                     SyncAction::Update
                 } else {

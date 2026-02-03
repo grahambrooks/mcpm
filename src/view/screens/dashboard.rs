@@ -64,9 +64,7 @@ impl DashboardScreen {
             };
 
             let config_path = ide
-                .config_path
-                .as_ref()
-                .map(|p| p.as_str())
+                .config_path.as_deref()
                 .unwrap_or("N/A");
 
             vec![

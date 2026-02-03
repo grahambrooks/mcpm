@@ -2,18 +2,13 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 /// Transport type for MCP servers
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
 #[serde(rename_all = "lowercase")]
 pub enum TransportType {
+    #[default]
     Stdio,
     Http,
     Sse,
-}
-
-impl Default for TransportType {
-    fn default() -> Self {
-        Self::Stdio
-    }
 }
 
 /// Configuration for an MCP server (as stored in IDE configs)
