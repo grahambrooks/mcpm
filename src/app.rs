@@ -71,26 +71,25 @@ impl App {
         self.state.registry_loading = false;
     }
 
-    async fn search_registry(&mut self, query: &str) {
+    fn search_registry(&mut self, query: &str) {
         if query.is_empty() {
             self.state.search_results.clear();
             return;
         }
 
-        let result = match self.state.registry_source {
-            RegistrySource::Official => self.official_registry.search(query).await,
-            RegistrySource::Legacy => self.legacy_registry.search(query).await,
-        };
-
-        match result {
-            Ok(servers) => {
-                self.state.search_results = servers;
-                self.state.selected_registry_index = 0;
-            }
-            Err(e) => {
-                self.state.status_message = Some(format!("Search error: {}", e));
-            }
-        }
+        let query_lower = query.to_lowercase();
+        self.state.search_results = self
+            .state
+            .registry_servers
+            .iter()
+            .filter(|s| {
+                s.name.to_lowercase().contains(&query_lower)
+                    || s.display_name().to_lowercase().contains(&query_lower)
+                    || s.description.to_lowercase().contains(&query_lower)
+            })
+            .cloned()
+            .collect();
+        self.state.selected_registry_index = 0;
     }
 
     pub async fn handle_event(&mut self, event: Event) -> Result<()> {
@@ -175,17 +174,22 @@ impl App {
         match key.code {
             KeyCode::Esc => {
                 self.state.input_mode = InputMode::Normal;
+                self.state.search_query.clear();
+                self.state.search_results.clear();
+                self.state.selected_registry_index = 0;
             }
             KeyCode::Enter => {
                 self.state.input_mode = InputMode::Normal;
-                let query = self.state.search_query.clone();
-                self.search_registry(&query).await;
             }
             KeyCode::Backspace => {
                 self.state.search_query.pop();
+                let query = self.state.search_query.clone();
+                self.search_registry(&query);
             }
             KeyCode::Char(c) => {
                 self.state.search_query.push(c);
+                let query = self.state.search_query.clone();
+                self.search_registry(&query);
             }
             _ => {}
         }
