@@ -8,6 +8,18 @@ use ratatui::{
 
 use crate::model::{InstalledServer, RegistryServer};
 
+/// Truncate a string to at most `max_chars` characters, appending "..." if truncated.
+/// Also replaces newlines with spaces for single-line display.
+fn truncate_str(s: &str, max_chars: usize) -> String {
+    let clean: String = s.chars().map(|c| if c == '\n' { ' ' } else { c }).collect();
+    if clean.chars().count() > max_chars {
+        let truncated: String = clean.chars().take(max_chars).collect();
+        format!("{}...", truncated)
+    } else {
+        clean
+    }
+}
+
 pub struct ServerListWidget;
 
 impl ServerListWidget {
@@ -30,17 +42,25 @@ impl ServerListWidget {
                     Style::default()
                 };
 
-                let description = if server.description.len() > 60 {
-                    format!("{}...", &server.description[..57])
-                } else {
-                    server.description.clone()
-                };
+                let description = truncate_str(&server.description, 57);
 
-                let content = Line::from(vec![
-                    Span::styled(&server.name, style.fg(Color::Cyan)),
-                    Span::styled(" - ", style),
-                    Span::styled(description, style.fg(Color::Gray)),
-                ]);
+                let display_name = server.display_name();
+
+                let mut spans = vec![
+                    Span::styled(display_name, style.fg(Color::Cyan)),
+                ];
+
+                if let Some(version) = &server.version {
+                    spans.push(Span::styled(
+                        format!(" v{}", version),
+                        style.fg(Color::DarkGray),
+                    ));
+                }
+
+                spans.push(Span::styled(" - ", style));
+                spans.push(Span::styled(description, style.fg(Color::Gray)));
+
+                let content = Line::from(spans);
 
                 ListItem::new(content).style(style)
             })
@@ -81,11 +101,7 @@ impl ServerListWidget {
                 };
 
                 let command = server.config.display_command();
-                let command_display = if command.len() > 50 {
-                    format!("{}...", &command[..47])
-                } else {
-                    command
-                };
+                let command_display = truncate_str(&command, 47);
 
                 let content = Line::from(vec![
                     Span::styled(&server.name, style.fg(Color::Green)),

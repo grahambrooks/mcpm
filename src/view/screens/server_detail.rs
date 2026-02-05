@@ -34,42 +34,71 @@ impl ServerDetailScreen {
                 .split(chunks[1]);
 
             // Left side - basic info
-            let info_lines = vec![
+            let mut info_lines = vec![
                 Line::from(vec![Span::styled(
-                    &server.name,
+                    server.display_name(),
                     Style::default()
                         .fg(Color::Cyan)
                         .add_modifier(Modifier::BOLD),
                 )]),
-                Line::from(""),
-                Line::from(vec![Span::styled(
-                    "Description: ",
-                    Style::default().fg(Color::Gray),
-                )]),
-                Line::from(vec![Span::styled(
-                    &server.description,
-                    Style::default().fg(Color::White),
-                )]),
-                Line::from(""),
-                Line::from(vec![
-                    Span::styled("Source: ", Style::default().fg(Color::Gray)),
-                    Span::styled(&server.registry_source, Style::default().fg(Color::Yellow)),
-                ]),
-                Line::from(vec![
-                    Span::styled("Vendor: ", Style::default().fg(Color::Gray)),
-                    Span::styled(
-                        server.vendor.as_deref().unwrap_or("N/A"),
-                        Style::default().fg(Color::White),
-                    ),
-                ]),
-                Line::from(vec![
-                    Span::styled("License: ", Style::default().fg(Color::Gray)),
-                    Span::styled(
-                        server.license.as_deref().unwrap_or("N/A"),
-                        Style::default().fg(Color::White),
-                    ),
-                ]),
             ];
+
+            // Show namespaced name if title differs
+            if server.title.is_some() && server.display_name() != server.name {
+                info_lines.push(Line::from(vec![Span::styled(
+                    format!("({})", server.name),
+                    Style::default().fg(Color::DarkGray),
+                )]));
+            }
+
+            info_lines.push(Line::from(""));
+
+            info_lines.push(Line::from(vec![Span::styled(
+                "Description: ",
+                Style::default().fg(Color::Gray),
+            )]));
+            info_lines.push(Line::from(vec![Span::styled(
+                &server.description,
+                Style::default().fg(Color::White),
+            )]));
+            info_lines.push(Line::from(""));
+
+            // Version
+            if let Some(version) = &server.version {
+                info_lines.push(Line::from(vec![
+                    Span::styled("Version: ", Style::default().fg(Color::Gray)),
+                    Span::styled(version, Style::default().fg(Color::Green)),
+                ]));
+            }
+
+            // Transport type
+            let transport = server.primary_transport();
+            info_lines.push(Line::from(vec![
+                Span::styled("Transport: ", Style::default().fg(Color::Gray)),
+                Span::styled(
+                    transport.to_string(),
+                    Style::default().fg(Color::Magenta),
+                ),
+            ]));
+
+            info_lines.push(Line::from(vec![
+                Span::styled("Source: ", Style::default().fg(Color::Gray)),
+                Span::styled(&server.registry_source, Style::default().fg(Color::Yellow)),
+            ]));
+            info_lines.push(Line::from(vec![
+                Span::styled("Vendor: ", Style::default().fg(Color::Gray)),
+                Span::styled(
+                    server.vendor.as_deref().unwrap_or("N/A"),
+                    Style::default().fg(Color::White),
+                ),
+            ]));
+            info_lines.push(Line::from(vec![
+                Span::styled("License: ", Style::default().fg(Color::Gray)),
+                Span::styled(
+                    server.license.as_deref().unwrap_or("N/A"),
+                    Style::default().fg(Color::White),
+                ),
+            ]));
 
             let info_widget = Paragraph::new(info_lines).block(
                 Block::default()
@@ -78,26 +107,46 @@ impl ServerDetailScreen {
             );
             frame.render_widget(info_widget, details_chunks[0]);
 
-            // Right side - install command
-            let command = server.install_command.as_deref().unwrap_or("npx");
-            let args = server.install_args.join(" ");
+            // Right side - install command / remote URL
+            let install_lines = if !server.remotes.is_empty() && server.install_command.is_none() {
+                // Remote-only server: show URL
+                let remote = &server.remotes[0];
+                vec![
+                    Line::from(vec![Span::styled(
+                        "Remote URL: ",
+                        Style::default().fg(Color::Gray),
+                    )]),
+                    Line::from(vec![Span::styled(
+                        &remote.url,
+                        Style::default().fg(Color::Green),
+                    )]),
+                    Line::from(""),
+                    Line::from(vec![Span::styled(
+                        format!("Transport: {}", remote.transport_type),
+                        Style::default().fg(Color::Magenta),
+                    )]),
+                ]
+            } else {
+                let command = server.install_command.as_deref().unwrap_or("npx");
+                let args = server.install_args.join(" ");
 
-            let install_lines = vec![
-                Line::from(vec![Span::styled(
-                    "Command: ",
-                    Style::default().fg(Color::Gray),
-                )]),
-                Line::from(vec![Span::styled(
-                    command,
-                    Style::default().fg(Color::Green),
-                )]),
-                Line::from(""),
-                Line::from(vec![Span::styled(
-                    "Arguments: ",
-                    Style::default().fg(Color::Gray),
-                )]),
-                Line::from(vec![Span::styled(args, Style::default().fg(Color::Blue))]),
-            ];
+                vec![
+                    Line::from(vec![Span::styled(
+                        "Command: ",
+                        Style::default().fg(Color::Gray),
+                    )]),
+                    Line::from(vec![Span::styled(
+                        command,
+                        Style::default().fg(Color::Green),
+                    )]),
+                    Line::from(""),
+                    Line::from(vec![Span::styled(
+                        "Arguments: ",
+                        Style::default().fg(Color::Gray),
+                    )]),
+                    Line::from(vec![Span::styled(args, Style::default().fg(Color::Blue))]),
+                ]
+            };
 
             let install_widget = Paragraph::new(install_lines)
                 .block(Block::default().title("Installation").borders(Borders::ALL));
@@ -159,7 +208,9 @@ impl ServerDetailScreen {
             None => return,
         };
 
-        if server.env_vars.is_empty() {
+        let all_vars = server.all_env_vars();
+
+        if all_vars.is_empty() {
             let no_env = Paragraph::new("No environment variables required.")
                 .style(Style::default().fg(Color::Gray))
                 .block(
@@ -171,8 +222,7 @@ impl ServerDetailScreen {
             return;
         }
 
-        let items: Vec<ListItem> = server
-            .env_vars
+        let items: Vec<ListItem> = all_vars
             .iter()
             .enumerate()
             .map(|(i, var)| {
@@ -182,29 +232,43 @@ impl ServerDetailScreen {
                     .map(|s| s.as_str())
                     .unwrap_or("");
 
-                let required = if var.required {
-                    Span::styled("*", Style::default().fg(Color::Red))
-                } else {
-                    Span::raw("")
-                };
+                let mut spans = vec![
+                    Span::styled(
+                        &var.name,
+                        if i == state.env_input_index {
+                            Style::default().fg(Color::Yellow)
+                        } else {
+                            Style::default()
+                        },
+                    ),
+                ];
 
-                let style = if i == state.env_input_index {
-                    Style::default().fg(Color::Yellow)
-                } else {
-                    Style::default()
-                };
+                if var.required {
+                    spans.push(Span::styled("*", Style::default().fg(Color::Red)));
+                }
 
-                ListItem::new(Line::from(vec![
-                    Span::styled(&var.name, style),
-                    required,
-                    Span::raw(": "),
-                    Span::styled(value, Style::default().fg(Color::Green)),
-                    if i == state.env_input_index {
-                        Span::styled("│", Style::default().fg(Color::Yellow))
-                    } else {
-                        Span::raw("")
-                    },
-                ]))
+                if var.is_secret {
+                    spans.push(Span::styled(" [secret]", Style::default().fg(Color::Red)));
+                }
+
+                spans.push(Span::raw(": "));
+
+                if value.is_empty() {
+                    if let Some(default) = &var.default_value {
+                        spans.push(Span::styled(
+                            format!("(default: {})", default),
+                            Style::default().fg(Color::DarkGray),
+                        ));
+                    }
+                } else {
+                    spans.push(Span::styled(value, Style::default().fg(Color::Green)));
+                }
+
+                if i == state.env_input_index {
+                    spans.push(Span::styled("│", Style::default().fg(Color::Yellow)));
+                }
+
+                ListItem::new(Line::from(spans))
             })
             .collect();
 

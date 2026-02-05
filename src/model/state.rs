@@ -91,21 +91,21 @@ pub struct AppState {
 pub enum RegistrySource {
     #[default]
     Official,
-    Smithery,
+    Legacy,
 }
 
 impl RegistrySource {
     pub fn name(&self) -> &'static str {
         match self {
-            RegistrySource::Official => "GitHub MCP",
-            RegistrySource::Smithery => "Smithery.ai",
+            RegistrySource::Official => "MCP Registry",
+            RegistrySource::Legacy => "MCP Registry (v0)",
         }
     }
 
     pub fn toggle(&self) -> Self {
         match self {
-            RegistrySource::Official => RegistrySource::Smithery,
-            RegistrySource::Smithery => RegistrySource::Official,
+            RegistrySource::Official => RegistrySource::Legacy,
+            RegistrySource::Legacy => RegistrySource::Official,
         }
     }
 }

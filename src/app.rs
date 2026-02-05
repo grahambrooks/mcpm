@@ -3,14 +3,14 @@ use crossterm::event::{Event, KeyCode, KeyEvent};
 use crate::error::Result;
 use crate::ide::{create_ide_manager, IdeManager};
 use crate::model::{AppState, IdeInfo, InputMode, RegistrySource, Screen};
-use crate::registry::{OfficialRegistryClient, RegistryClient, SmitheryRegistryClient};
+use crate::registry::{OfficialRegistryClient, RegistryClient};
 use crate::services::{InstallerService, SyncService};
 
 pub struct App {
     pub state: AppState,
     ide_manager: IdeManager,
     official_registry: OfficialRegistryClient,
-    smithery_registry: SmitheryRegistryClient,
+    legacy_registry: OfficialRegistryClient,
 }
 
 impl App {
@@ -18,8 +18,8 @@ impl App {
         Self {
             state: AppState::new(),
             ide_manager: create_ide_manager(),
-            official_registry: OfficialRegistryClient::new(),
-            smithery_registry: SmitheryRegistryClient::new(),
+            official_registry: OfficialRegistryClient::v01(),
+            legacy_registry: OfficialRegistryClient::v0(),
         }
     }
 
@@ -55,7 +55,7 @@ impl App {
 
         let result = match self.state.registry_source {
             RegistrySource::Official => self.official_registry.list_servers().await,
-            RegistrySource::Smithery => self.smithery_registry.list_servers().await,
+            RegistrySource::Legacy => self.legacy_registry.list_servers().await,
         };
 
         match result {
@@ -79,7 +79,7 @@ impl App {
 
         let result = match self.state.registry_source {
             RegistrySource::Official => self.official_registry.search(query).await,
-            RegistrySource::Smithery => self.smithery_registry.search(query).await,
+            RegistrySource::Legacy => self.legacy_registry.search(query).await,
         };
 
         match result {
@@ -198,7 +198,8 @@ impl App {
             None => return Ok(()),
         };
 
-        let current_var = match server.env_vars.get(self.state.env_input_index) {
+        let all_vars = server.all_env_vars();
+        let current_var = match all_vars.get(self.state.env_input_index) {
             Some(v) => v.name.clone(),
             None => return Ok(()),
         };
@@ -209,7 +210,7 @@ impl App {
             }
             KeyCode::Enter | KeyCode::Tab => {
                 // Move to next env var
-                if self.state.env_input_index < server.env_vars.len() - 1 {
+                if self.state.env_input_index < all_vars.len() - 1 {
                     self.state.env_input_index += 1;
                 } else {
                     self.state.input_mode = InputMode::Normal;
