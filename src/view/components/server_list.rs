@@ -42,9 +42,15 @@ impl ServerListWidget {
                     Style::default()
                 };
 
-                let description = truncate_str(&server.description, 57);
-
                 let display_name = server.display_name();
+
+                // Compute used width: border (1) + padding (1) + name + version + " - " + border (1) + padding (1)
+                let mut used: usize = 4 + display_name.chars().count() + 3; // borders/padding + name + " - "
+                if let Some(version) = &server.version {
+                    used += 2 + version.chars().count(); // " v" + version
+                }
+                let available = (area.width as usize).saturating_sub(used);
+                let description = truncate_str(&server.description, available);
 
                 let mut spans = vec![
                     Span::styled(display_name, style.fg(Color::Cyan)),
@@ -101,7 +107,10 @@ impl ServerListWidget {
                 };
 
                 let command = server.config.display_command();
-                let command_display = truncate_str(&command, 47);
+                // Compute available width: area - borders/padding (4) - name - " → " (3)
+                let used: usize = 4 + server.name.chars().count() + 3;
+                let available = (area.width as usize).saturating_sub(used);
+                let command_display = truncate_str(&command, available);
 
                 let content = Line::from(vec![
                     Span::styled(&server.name, style.fg(Color::Green)),

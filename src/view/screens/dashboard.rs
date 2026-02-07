@@ -127,7 +127,7 @@ impl DashboardScreen {
                 ),
             ]),
             Line::from(vec![
-                Span::styled("Cached Servers: ", Style::default().fg(Color::Gray)),
+                Span::styled("Registry Servers: ", Style::default().fg(Color::Gray)),
                 if state.registry_loading {
                     Span::styled("Loading...", Style::default().fg(Color::Yellow))
                 } else {

@@ -82,8 +82,7 @@ fn render_help_overlay(frame: &mut Frame) {
             "Installed",
             Style::default().fg(Color::Yellow),
         )]),
-        Line::from("  d       Delete server"),
-        Line::from("  e       Edit server"),
+        Line::from("  r       Refresh"),
         Line::from(""),
         Line::from(vec![Span::styled(
             "Sync",

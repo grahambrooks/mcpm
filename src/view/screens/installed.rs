@@ -18,7 +18,7 @@ impl InstalledScreen {
             .constraints([
                 Constraint::Length(3), // IDE tabs
                 Constraint::Min(10),   // Server list
-                Constraint::Length(4), // Help
+                Constraint::Length(3), // Help
             ])
             .split(area);
 
@@ -43,7 +43,7 @@ impl InstalledScreen {
                 frame.render_widget(not_found, chunks[1]);
             } else if let Some(servers) = state.ide_servers.get(&ide.id) {
                 if servers.is_empty() {
-                    let empty = Paragraph::new("No MCP servers installed for this IDE.\nPress 'a' to add a server or go to Registry (2) to browse.")
+                    let empty = Paragraph::new("No MCP servers installed for this IDE.\nGo to Registry (2) to browse and install servers.")
                         .style(Style::default().fg(Color::Gray))
                         .block(
                             Block::default()
@@ -78,16 +78,8 @@ impl InstalledScreen {
                 Span::raw(" Switch IDE  "),
                 Span::styled("↑↓", Style::default().fg(Color::Yellow)),
                 Span::raw(" Navigate  "),
-                Span::styled("Enter", Style::default().fg(Color::Yellow)),
-                Span::raw(" View Details  "),
-            ]),
-            Line::from(vec![
-                Span::styled("d", Style::default().fg(Color::Yellow)),
-                Span::raw(" Delete  "),
-                Span::styled("e", Style::default().fg(Color::Yellow)),
-                Span::raw(" Edit  "),
-                Span::styled("a", Style::default().fg(Color::Yellow)),
-                Span::raw(" Add Server"),
+                Span::styled("r", Style::default().fg(Color::Yellow)),
+                Span::raw(" Refresh"),
             ]),
         ])
         .block(

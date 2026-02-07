@@ -35,15 +35,33 @@ impl StatusBarWidget {
         ];
 
         let status = if let Some(msg) = status_message {
-            Line::from(vec![
+            // Compute nav help as plain string to measure its width
+            let nav_text: String = nav_help.iter().map(|s| s.content.as_ref()).collect();
+            let status_prefix = format!("[{}] ", current_screen.title());
+            let status_text = format!("{}{}", status_prefix, msg);
+
+            // If there's room, show status on left and nav on right with padding
+            let width = area.width as usize;
+            let nav_width = nav_text.chars().count();
+            let status_width = status_text.chars().count();
+            let gap = width.saturating_sub(status_width + nav_width);
+
+            let mut spans = vec![
                 Span::styled(
-                    format!("[{}] ", current_screen.title()),
+                    status_prefix,
                     Style::default()
                         .fg(Color::Cyan)
                         .add_modifier(Modifier::BOLD),
                 ),
                 Span::styled(msg, Style::default().fg(Color::Yellow)),
-            ])
+            ];
+
+            if gap >= 2 {
+                spans.push(Span::raw(" ".repeat(gap)));
+                spans.extend(nav_help);
+            }
+
+            Line::from(spans)
         } else {
             Line::from(nav_help)
         };

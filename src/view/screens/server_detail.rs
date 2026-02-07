@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
@@ -6,7 +8,7 @@ use ratatui::{
     Frame,
 };
 
-use crate::model::AppState;
+use crate::model::{AppState, ServerConfig};
 use crate::view::components::IdeTabsWidget;
 
 pub struct ServerDetailScreen;
@@ -85,20 +87,24 @@ impl ServerDetailScreen {
                 Span::styled("Source: ", Style::default().fg(Color::Gray)),
                 Span::styled(&server.registry_source, Style::default().fg(Color::Yellow)),
             ]));
-            info_lines.push(Line::from(vec![
-                Span::styled("Vendor: ", Style::default().fg(Color::Gray)),
-                Span::styled(
-                    server.vendor.as_deref().unwrap_or("N/A"),
-                    Style::default().fg(Color::White),
-                ),
-            ]));
-            info_lines.push(Line::from(vec![
-                Span::styled("License: ", Style::default().fg(Color::Gray)),
-                Span::styled(
-                    server.license.as_deref().unwrap_or("N/A"),
-                    Style::default().fg(Color::White),
-                ),
-            ]));
+            if let Some(vendor) = &server.vendor {
+                info_lines.push(Line::from(vec![
+                    Span::styled("Vendor: ", Style::default().fg(Color::Gray)),
+                    Span::styled(vendor, Style::default().fg(Color::White)),
+                ]));
+            }
+            if let Some(license) = &server.license {
+                info_lines.push(Line::from(vec![
+                    Span::styled("License: ", Style::default().fg(Color::Gray)),
+                    Span::styled(license, Style::default().fg(Color::White)),
+                ]));
+            }
+            if let Some(repo) = &server.repository {
+                info_lines.push(Line::from(vec![
+                    Span::styled("Repository: ", Style::default().fg(Color::Gray)),
+                    Span::styled(repo, Style::default().fg(Color::Blue)),
+                ]));
+            }
 
             let info_widget = Paragraph::new(info_lines).block(
                 Block::default()
@@ -107,46 +113,42 @@ impl ServerDetailScreen {
             );
             frame.render_widget(info_widget, details_chunks[0]);
 
-            // Right side - install command / remote URL
-            let install_lines = if !server.remotes.is_empty() && server.install_command.is_none() {
-                // Remote-only server: show URL
-                let remote = &server.remotes[0];
-                vec![
-                    Line::from(vec![Span::styled(
-                        "Remote URL: ",
-                        Style::default().fg(Color::Gray),
-                    )]),
-                    Line::from(vec![Span::styled(
-                        &remote.url,
-                        Style::default().fg(Color::Green),
-                    )]),
-                    Line::from(""),
-                    Line::from(vec![Span::styled(
-                        format!("Transport: {}", remote.transport_type),
-                        Style::default().fg(Color::Magenta),
-                    )]),
-                ]
-            } else {
-                let command = server.install_command.as_deref().unwrap_or("npx");
-                let args = server.install_args.join(" ");
+            // Right side - resolved configuration that will be written to the IDE
+            let resolved = server.to_server_config(HashMap::new());
+            let mut install_lines = Vec::new();
 
-                vec![
-                    Line::from(vec![Span::styled(
-                        "Command: ",
-                        Style::default().fg(Color::Gray),
-                    )]),
-                    Line::from(vec![Span::styled(
-                        command,
-                        Style::default().fg(Color::Green),
-                    )]),
-                    Line::from(""),
-                    Line::from(vec![Span::styled(
-                        "Arguments: ",
-                        Style::default().fg(Color::Gray),
-                    )]),
-                    Line::from(vec![Span::styled(args, Style::default().fg(Color::Blue))]),
-                ]
-            };
+            // Show package registry type if available
+            if let Some(pkg) = server.preferred_package() {
+                install_lines.push(Line::from(vec![
+                    Span::styled("Package: ", Style::default().fg(Color::Gray)),
+                    Span::styled(
+                        format!("{} ({})", pkg.identifier, pkg.registry_type),
+                        Style::default().fg(Color::Yellow),
+                    ),
+                ]));
+                install_lines.push(Line::from(""));
+            }
+
+            match &resolved {
+                ServerConfig::Stdio(cfg) => {
+                    install_lines.push(Line::from(vec![
+                        Span::styled("Command: ", Style::default().fg(Color::Gray)),
+                        Span::styled(&cfg.command, Style::default().fg(Color::Green)),
+                    ]));
+                    if !cfg.args.is_empty() {
+                        install_lines.push(Line::from(vec![
+                            Span::styled("Args: ", Style::default().fg(Color::Gray)),
+                            Span::styled(cfg.args.join(" "), Style::default().fg(Color::Blue)),
+                        ]));
+                    }
+                }
+                ServerConfig::Http(cfg) => {
+                    install_lines.push(Line::from(vec![
+                        Span::styled("URL: ", Style::default().fg(Color::Gray)),
+                        Span::styled(&cfg.url, Style::default().fg(Color::Green)),
+                    ]));
+                }
+            }
 
             let install_widget = Paragraph::new(install_lines)
                 .block(Block::default().title("Installation").borders(Borders::ALL));

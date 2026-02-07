@@ -1,6 +1,6 @@
 use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
-    style::{Color, Modifier, Style},
+    style::{Color, Style},
     text::{Line, Span},
     widgets::{Block, Borders, Paragraph},
     Frame,
@@ -17,7 +17,6 @@ impl RegistryScreen {
             .direction(Direction::Vertical)
             .constraints([
                 Constraint::Length(3), // Search bar
-                Constraint::Length(3), // Registry source toggle
                 Constraint::Min(10),   // Server list
                 Constraint::Length(4), // Help
             ])
@@ -32,27 +31,8 @@ impl RegistryScreen {
             "Type to search servers...",
         );
 
-        // Registry source toggle
-        let source_line = Line::from(vec![
-            Span::styled("Source: ", Style::default().fg(Color::Gray)),
-            Span::styled(
-                state.registry_source.name(),
-                Style::default()
-                    .fg(Color::Cyan)
-                    .add_modifier(Modifier::BOLD),
-            ),
-            Span::styled(
-                " (Press 's' to switch)",
-                Style::default().fg(Color::DarkGray),
-            ),
-        ]);
-
-        let source_widget = Paragraph::new(source_line).block(
-            Block::default()
-                .borders(Borders::ALL)
-                .border_style(Style::default().fg(Color::White)),
-        );
-        frame.render_widget(source_widget, chunks[1]);
+        // Source info for embedding in list title
+        let source_suffix = format!(" [{}] ('s' to switch)", state.registry_source.name());
 
         // Server list
         if state.registry_loading {
@@ -65,7 +45,7 @@ impl RegistryScreen {
                         .title("Registry Servers")
                         .borders(Borders::ALL),
                 );
-            frame.render_widget(loading, chunks[2]);
+            frame.render_widget(loading, chunks[1]);
         } else if let Some(error) = &state.registry_error {
             let error_widget = Paragraph::new(error.as_str())
                 .style(Style::default().fg(Color::Red))
@@ -75,21 +55,22 @@ impl RegistryScreen {
                         .borders(Borders::ALL)
                         .border_style(Style::default().fg(Color::Red)),
                 );
-            frame.render_widget(error_widget, chunks[2]);
+            frame.render_widget(error_widget, chunks[1]);
         } else {
             let servers = state.displayed_servers();
             let title = if state.show_all_versions {
                 format!(
-                    "Registry Servers ({} versions, {} unique)",
+                    "Registry Servers ({} versions, {} unique){}",
                     servers.len(),
-                    state.registry_servers_latest.len()
+                    state.registry_servers_latest.len(),
+                    source_suffix
                 )
             } else {
-                format!("Registry Servers ({} servers)", servers.len())
+                format!("Registry Servers ({} servers){}", servers.len(), source_suffix)
             };
             ServerListWidget::render_registry_servers(
                 frame,
-                chunks[2],
+                chunks[1],
                 servers,
                 state.selected_registry_index,
                 &title,
@@ -127,6 +108,6 @@ impl RegistryScreen {
                 .borders(Borders::ALL)
                 .border_style(Style::default().fg(Color::DarkGray)),
         );
-        frame.render_widget(help, chunks[3]);
+        frame.render_widget(help, chunks[2]);
     }
 }
