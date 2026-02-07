@@ -661,3 +661,171 @@ fn deduplicate_latest(servers: &[RegistryServer]) -> Vec<RegistryServer> {
         })
         .collect()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn make_test_server(name: &str, version: Option<&str>) -> RegistryServer {
+        RegistryServer {
+            name: name.to_string(),
+            description: String::new(),
+            title: None,
+            version: version.map(|v| v.to_string()),
+            repository: None,
+            vendor: None,
+            homepage: None,
+            license: None,
+            icon_url: None,
+            keywords: vec![],
+            install_command: None,
+            install_args: vec![],
+            env_vars: vec![],
+            packages: vec![],
+            remotes: vec![],
+            registry_source: String::new(),
+        }
+    }
+
+    // --- compare_versions tests ---
+
+    #[test]
+    fn compare_versions_equal() {
+        assert_eq!(
+            compare_versions("1.0.0", "1.0.0"),
+            std::cmp::Ordering::Equal
+        );
+    }
+
+    #[test]
+    fn compare_versions_greater() {
+        assert_eq!(
+            compare_versions("2.0.0", "1.0.0"),
+            std::cmp::Ordering::Greater
+        );
+        assert_eq!(
+            compare_versions("1.1.0", "1.0.0"),
+            std::cmp::Ordering::Greater
+        );
+        assert_eq!(
+            compare_versions("1.0.1", "1.0.0"),
+            std::cmp::Ordering::Greater
+        );
+    }
+
+    #[test]
+    fn compare_versions_less() {
+        assert_eq!(
+            compare_versions("1.0.0", "2.0.0"),
+            std::cmp::Ordering::Less
+        );
+        assert_eq!(
+            compare_versions("0.9.9", "1.0.0"),
+            std::cmp::Ordering::Less
+        );
+    }
+
+    #[test]
+    fn compare_versions_different_segment_lengths() {
+        // "1.0" vs "1.0.0": numerically equal, but string fallback makes "1.0" < "1.0.0"
+        assert_eq!(
+            compare_versions("1.0", "1.0.0"),
+            std::cmp::Ordering::Less
+        );
+        assert_eq!(
+            compare_versions("1.0.1", "1.0"),
+            std::cmp::Ordering::Greater
+        );
+        // "1" vs "1.0.0": numerically equal, but string fallback makes "1" < "1.0.0"
+        assert_eq!(
+            compare_versions("1", "1.0.0"),
+            std::cmp::Ordering::Less
+        );
+    }
+
+    #[test]
+    fn compare_versions_non_numeric_segments() {
+        // Non-numeric segments parse to 0
+        assert_eq!(
+            compare_versions("1.0.0-beta", "1.0.0"),
+            std::cmp::Ordering::Equal.then(std::cmp::Ordering::Greater)
+        );
+    }
+
+    #[test]
+    fn compare_versions_prerelease_string_fallback() {
+        // When numeric parts are equal, falls back to string comparison
+        let result = compare_versions("1.0.0-alpha", "1.0.0-beta");
+        assert_eq!(result, std::cmp::Ordering::Less);
+    }
+
+    // --- deduplicate_latest tests ---
+
+    #[test]
+    fn deduplicate_latest_empty_input() {
+        let result = deduplicate_latest(&[]);
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn deduplicate_latest_single_server() {
+        let servers = vec![make_test_server("foo", Some("1.0.0"))];
+        let result = deduplicate_latest(&servers);
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].name, "foo");
+    }
+
+    #[test]
+    fn deduplicate_latest_picks_latest_version() {
+        let servers = vec![
+            make_test_server("foo", Some("1.0.0")),
+            make_test_server("foo", Some("2.0.0")),
+            make_test_server("foo", Some("1.5.0")),
+        ];
+        let result = deduplicate_latest(&servers);
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].version.as_deref(), Some("2.0.0"));
+    }
+
+    #[test]
+    fn deduplicate_latest_preserves_ordering() {
+        let servers = vec![
+            make_test_server("beta", Some("1.0.0")),
+            make_test_server("alpha", Some("1.0.0")),
+            make_test_server("gamma", Some("1.0.0")),
+        ];
+        let result = deduplicate_latest(&servers);
+        assert_eq!(result.len(), 3);
+        assert_eq!(result[0].name, "beta");
+        assert_eq!(result[1].name, "alpha");
+        assert_eq!(result[2].name, "gamma");
+    }
+
+    #[test]
+    fn deduplicate_latest_handles_missing_versions() {
+        let servers = vec![
+            make_test_server("foo", None),
+            make_test_server("foo", Some("1.0.0")),
+        ];
+        let result = deduplicate_latest(&servers);
+        assert_eq!(result.len(), 1);
+        // Server with version "1.0.0" should win over None (treated as "0.0.0")
+        assert_eq!(result[0].version.as_deref(), Some("1.0.0"));
+    }
+
+    #[test]
+    fn deduplicate_latest_mixed_unique_and_duplicates() {
+        let servers = vec![
+            make_test_server("foo", Some("1.0.0")),
+            make_test_server("bar", Some("2.0.0")),
+            make_test_server("foo", Some("3.0.0")),
+            make_test_server("baz", Some("1.0.0")),
+        ];
+        let result = deduplicate_latest(&servers);
+        assert_eq!(result.len(), 3);
+        assert_eq!(result[0].name, "foo");
+        assert_eq!(result[0].version.as_deref(), Some("3.0.0"));
+        assert_eq!(result[1].name, "bar");
+        assert_eq!(result[2].name, "baz");
+    }
+}

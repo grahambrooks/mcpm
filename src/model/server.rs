@@ -300,7 +300,7 @@ impl RegistryServer {
     }
 
     /// Convert a package to a command + args for stdio execution
-    fn package_to_command(pkg: &PackageInfo) -> (String, Vec<String>) {
+    pub(crate) fn package_to_command(pkg: &PackageInfo) -> (String, Vec<String>) {
         match pkg.registry_type.as_str() {
             "npm" => (
                 "npx".to_string(),
@@ -315,5 +315,346 @@ impl RegistryServer {
                 vec!["-y".to_string(), pkg.identifier.clone()],
             ),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn make_test_server(name: &str, version: Option<&str>) -> RegistryServer {
+        RegistryServer {
+            name: name.to_string(),
+            description: String::new(),
+            title: None,
+            version: version.map(|v| v.to_string()),
+            repository: None,
+            vendor: None,
+            homepage: None,
+            license: None,
+            icon_url: None,
+            keywords: vec![],
+            install_command: None,
+            install_args: vec![],
+            env_vars: vec![],
+            packages: vec![],
+            remotes: vec![],
+            registry_source: String::new(),
+        }
+    }
+
+    fn make_package(registry_type: &str, identifier: &str, transport: TransportType) -> PackageInfo {
+        PackageInfo {
+            registry_type: registry_type.to_string(),
+            identifier: identifier.to_string(),
+            version: None,
+            transport_type: transport,
+            transport_url: None,
+            runtime_hint: None,
+            env_vars: vec![],
+        }
+    }
+
+    // --- TransportType Display tests ---
+
+    #[test]
+    fn transport_type_display() {
+        assert_eq!(TransportType::Stdio.to_string(), "stdio");
+        assert_eq!(TransportType::Http.to_string(), "http");
+        assert_eq!(TransportType::Sse.to_string(), "sse");
+        assert_eq!(TransportType::StreamableHttp.to_string(), "streamable-http");
+    }
+
+    // --- ServerConfig::transport_type tests ---
+
+    #[test]
+    fn server_config_transport_type_stdio() {
+        let config = ServerConfig::Stdio(StdioServerConfig {
+            command: "npx".to_string(),
+            args: vec![],
+            env: HashMap::new(),
+        });
+        assert!(matches!(config.transport_type(), TransportType::Stdio));
+    }
+
+    #[test]
+    fn server_config_transport_type_http() {
+        let config = ServerConfig::Http(HttpServerConfig {
+            url: "https://example.com".to_string(),
+            headers: HashMap::new(),
+        });
+        assert!(matches!(config.transport_type(), TransportType::Http));
+    }
+
+    // --- ServerConfig::display_command tests ---
+
+    #[test]
+    fn display_command_without_args() {
+        let config = ServerConfig::Stdio(StdioServerConfig {
+            command: "npx".to_string(),
+            args: vec![],
+            env: HashMap::new(),
+        });
+        assert_eq!(config.display_command(), "npx");
+    }
+
+    #[test]
+    fn display_command_with_args() {
+        let config = ServerConfig::Stdio(StdioServerConfig {
+            command: "npx".to_string(),
+            args: vec!["-y".to_string(), "server".to_string()],
+            env: HashMap::new(),
+        });
+        assert_eq!(config.display_command(), "npx -y server");
+    }
+
+    #[test]
+    fn display_command_http() {
+        let config = ServerConfig::Http(HttpServerConfig {
+            url: "https://example.com/mcp".to_string(),
+            headers: HashMap::new(),
+        });
+        assert_eq!(config.display_command(), "https://example.com/mcp");
+    }
+
+    // --- RegistryServer::display_name tests ---
+
+    #[test]
+    fn display_name_with_title() {
+        let mut server = make_test_server("my-server", None);
+        server.title = Some("My Server".to_string());
+        assert_eq!(server.display_name(), "My Server");
+    }
+
+    #[test]
+    fn display_name_without_title() {
+        let server = make_test_server("my-server", None);
+        assert_eq!(server.display_name(), "my-server");
+    }
+
+    #[test]
+    fn display_name_with_empty_title() {
+        let mut server = make_test_server("my-server", None);
+        server.title = Some(String::new());
+        assert_eq!(server.display_name(), "my-server");
+    }
+
+    // --- RegistryServer::preferred_package tests ---
+
+    #[test]
+    fn preferred_package_none_when_empty() {
+        let server = make_test_server("test", None);
+        assert!(server.preferred_package().is_none());
+    }
+
+    #[test]
+    fn preferred_package_prefers_npm_stdio() {
+        let mut server = make_test_server("test", None);
+        server.packages = vec![
+            make_package("pypi", "pypi-pkg", TransportType::Stdio),
+            make_package("npm", "npm-pkg", TransportType::Stdio),
+        ];
+        let pkg = server.preferred_package().unwrap();
+        assert_eq!(pkg.registry_type, "npm");
+        assert_eq!(pkg.identifier, "npm-pkg");
+    }
+
+    #[test]
+    fn preferred_package_prefers_pypi_stdio_over_other() {
+        let mut server = make_test_server("test", None);
+        server.packages = vec![
+            make_package("oci", "oci-pkg", TransportType::Stdio),
+            make_package("pypi", "pypi-pkg", TransportType::Stdio),
+        ];
+        let pkg = server.preferred_package().unwrap();
+        assert_eq!(pkg.registry_type, "pypi");
+    }
+
+    #[test]
+    fn preferred_package_any_stdio_over_non_stdio() {
+        let mut server = make_test_server("test", None);
+        server.packages = vec![
+            make_package("npm", "npm-http", TransportType::Http),
+            make_package("oci", "oci-stdio", TransportType::Stdio),
+        ];
+        let pkg = server.preferred_package().unwrap();
+        assert_eq!(pkg.identifier, "oci-stdio");
+    }
+
+    #[test]
+    fn preferred_package_falls_back_to_first() {
+        let mut server = make_test_server("test", None);
+        server.packages = vec![
+            make_package("npm", "npm-http", TransportType::Http),
+            make_package("pypi", "pypi-sse", TransportType::Sse),
+        ];
+        let pkg = server.preferred_package().unwrap();
+        assert_eq!(pkg.identifier, "npm-http");
+    }
+
+    // --- RegistryServer::all_env_vars tests ---
+
+    #[test]
+    fn all_env_vars_combines_and_deduplicates() {
+        let mut server = make_test_server("test", None);
+        server.env_vars = vec![
+            EnvVarSpec {
+                name: "API_KEY".to_string(),
+                description: None,
+                required: true,
+                is_secret: false,
+                format: None,
+                default_value: None,
+            },
+            EnvVarSpec {
+                name: "TOKEN".to_string(),
+                description: None,
+                required: false,
+                is_secret: false,
+                format: None,
+                default_value: None,
+            },
+        ];
+        server.packages = vec![{
+            let mut pkg = make_package("npm", "test-pkg", TransportType::Stdio);
+            pkg.env_vars = vec![
+                EnvVarSpec {
+                    name: "API_KEY".to_string(), // duplicate
+                    description: Some("from package".to_string()),
+                    required: false,
+                    is_secret: false,
+                    format: None,
+                    default_value: None,
+                },
+                EnvVarSpec {
+                    name: "SECRET".to_string(),
+                    description: None,
+                    required: false,
+                    is_secret: true,
+                    format: None,
+                    default_value: None,
+                },
+            ];
+            pkg
+        }];
+
+        let vars = server.all_env_vars();
+        let names: Vec<&str> = vars.iter().map(|v| v.name.as_str()).collect();
+        assert_eq!(names, vec!["API_KEY", "TOKEN", "SECRET"]);
+    }
+
+    // --- RegistryServer::primary_transport tests ---
+
+    #[test]
+    fn primary_transport_from_package() {
+        let mut server = make_test_server("test", None);
+        server.packages = vec![make_package("npm", "pkg", TransportType::Stdio)];
+        assert!(matches!(server.primary_transport(), TransportType::Stdio));
+    }
+
+    #[test]
+    fn primary_transport_from_remote() {
+        let mut server = make_test_server("test", None);
+        server.remotes = vec![RemoteInfo {
+            transport_type: TransportType::StreamableHttp,
+            url: "https://example.com".to_string(),
+            headers: vec![],
+        }];
+        assert!(matches!(
+            server.primary_transport(),
+            TransportType::StreamableHttp
+        ));
+    }
+
+    #[test]
+    fn primary_transport_fallback_stdio() {
+        let server = make_test_server("test", None);
+        assert!(matches!(server.primary_transport(), TransportType::Stdio));
+    }
+
+    // --- RegistryServer::to_server_config tests ---
+
+    #[test]
+    fn to_server_config_stdio_package() {
+        let mut server = make_test_server("test", None);
+        server.packages = vec![make_package("npm", "@mcp/server-fs", TransportType::Stdio)];
+        let config = server.to_server_config(HashMap::new());
+        match &config {
+            ServerConfig::Stdio(cfg) => {
+                assert_eq!(cfg.command, "npx");
+                assert_eq!(cfg.args, vec!["-y", "@mcp/server-fs"]);
+            }
+            _ => panic!("expected Stdio config"),
+        }
+    }
+
+    #[test]
+    fn to_server_config_remote() {
+        let mut server = make_test_server("test", None);
+        server.remotes = vec![RemoteInfo {
+            transport_type: TransportType::StreamableHttp,
+            url: "https://api.example.com/mcp".to_string(),
+            headers: vec![],
+        }];
+        let config = server.to_server_config(HashMap::new());
+        match &config {
+            ServerConfig::Http(cfg) => {
+                assert_eq!(cfg.url, "https://api.example.com/mcp");
+            }
+            _ => panic!("expected Http config"),
+        }
+    }
+
+    #[test]
+    fn to_server_config_fallback_uses_install_command() {
+        let mut server = make_test_server("test", None);
+        server.install_command = Some("my-command".to_string());
+        server.install_args = vec!["--flag".to_string()];
+        let config = server.to_server_config(HashMap::new());
+        match &config {
+            ServerConfig::Stdio(cfg) => {
+                assert_eq!(cfg.command, "my-command");
+                assert_eq!(cfg.args, vec!["--flag"]);
+            }
+            _ => panic!("expected Stdio config"),
+        }
+    }
+
+    #[test]
+    fn to_server_config_fallback_defaults_to_npx() {
+        let server = make_test_server("test", None);
+        let config = server.to_server_config(HashMap::new());
+        match &config {
+            ServerConfig::Stdio(cfg) => {
+                assert_eq!(cfg.command, "npx");
+            }
+            _ => panic!("expected Stdio config"),
+        }
+    }
+
+    // --- RegistryServer::package_to_command tests ---
+
+    #[test]
+    fn package_to_command_npm() {
+        let pkg = make_package("npm", "@mcp/server", TransportType::Stdio);
+        let (cmd, args) = RegistryServer::package_to_command(&pkg);
+        assert_eq!(cmd, "npx");
+        assert_eq!(args, vec!["-y", "@mcp/server"]);
+    }
+
+    #[test]
+    fn package_to_command_pypi() {
+        let pkg = make_package("pypi", "mcp-server", TransportType::Stdio);
+        let (cmd, args) = RegistryServer::package_to_command(&pkg);
+        assert_eq!(cmd, "uvx");
+        assert_eq!(args, vec!["mcp-server"]);
+    }
+
+    #[test]
+    fn package_to_command_unknown_falls_back_to_npx() {
+        let pkg = make_package("oci", "some-image", TransportType::Stdio);
+        let (cmd, args) = RegistryServer::package_to_command(&pkg);
+        assert_eq!(cmd, "npx");
+        assert_eq!(args, vec!["-y", "some-image"]);
     }
 }
