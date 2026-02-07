@@ -56,7 +56,9 @@ impl RegistryScreen {
 
         // Server list
         if state.registry_loading {
-            let loading = Paragraph::new("Loading servers...")
+            let spinner_chars = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
+            let spinner = spinner_chars[(state.loading_tick as usize / 2) % spinner_chars.len()];
+            let loading = Paragraph::new(format!("{} Loading servers...", spinner))
                 .style(Style::default().fg(Color::Yellow))
                 .block(
                     Block::default()
@@ -76,7 +78,15 @@ impl RegistryScreen {
             frame.render_widget(error_widget, chunks[2]);
         } else {
             let servers = state.displayed_servers();
-            let title = format!("Registry Servers ({} found)", servers.len());
+            let title = if state.show_all_versions {
+                format!(
+                    "Registry Servers ({} versions, {} unique)",
+                    servers.len(),
+                    state.registry_servers_latest.len()
+                )
+            } else {
+                format!("Registry Servers ({} servers)", servers.len())
+            };
             ServerListWidget::render_registry_servers(
                 frame,
                 chunks[2],
@@ -105,6 +115,8 @@ impl RegistryScreen {
                 Span::raw(" Switch Registry  "),
                 Span::styled("r", Style::default().fg(Color::Yellow)),
                 Span::raw(" Refresh  "),
+                Span::styled("v", Style::default().fg(Color::Yellow)),
+                Span::raw(" Toggle Versions  "),
                 Span::styled("Esc", Style::default().fg(Color::Yellow)),
                 Span::raw(" Clear Search"),
             ]),

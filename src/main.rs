@@ -59,6 +59,9 @@ async fn main() -> anyhow::Result<()> {
         return Err(e.into());
     }
 
+    // Start registry fetch in the background (non-blocking)
+    app.start_registry_fetch();
+
     // Main loop
     let result = run_app(&mut terminal, &mut app).await;
 
@@ -84,6 +87,9 @@ async fn run_app(
     app: &mut App,
 ) -> mcpm::Result<()> {
     loop {
+        // Poll for completed async tasks
+        app.poll_tasks();
+
         // Draw UI
         terminal.draw(|f| mcpm::view::render(f, &app.state))?;
 

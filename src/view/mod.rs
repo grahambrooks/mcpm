@@ -76,6 +76,7 @@ fn render_help_overlay(frame: &mut Frame) {
         Line::from("  r       Refresh"),
         Line::from("  i       Install to selected IDE"),
         Line::from("  I       Install to all IDEs"),
+        Line::from("  v       Toggle all versions"),
         Line::from(""),
         Line::from(vec![Span::styled(
             "Installed",

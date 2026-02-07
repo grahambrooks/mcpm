@@ -1,16 +1,18 @@
+use std::collections::HashMap;
+
 use crossterm::event::{Event, KeyCode, KeyEvent};
+use tokio::sync::oneshot;
 
 use crate::error::Result;
 use crate::ide::{create_ide_manager, IdeManager};
-use crate::model::{AppState, IdeInfo, InputMode, RegistrySource, Screen};
+use crate::model::{AppState, IdeInfo, InputMode, RegistryServer, RegistrySource, Screen};
 use crate::registry::{OfficialRegistryClient, RegistryClient};
 use crate::services::{InstallerService, SyncService};
 
 pub struct App {
     pub state: AppState,
     ide_manager: IdeManager,
-    official_registry: OfficialRegistryClient,
-    legacy_registry: OfficialRegistryClient,
+    registry_rx: Option<oneshot::Receiver<std::result::Result<Vec<RegistryServer>, String>>>,
 }
 
 impl App {
@@ -18,19 +20,71 @@ impl App {
         Self {
             state: AppState::new(),
             ide_manager: create_ide_manager(),
-            official_registry: OfficialRegistryClient::v01(),
-            legacy_registry: OfficialRegistryClient::v0(),
+            registry_rx: None,
         }
     }
 
     pub async fn init(&mut self) -> Result<()> {
-        // Load IDE info
+        // Load IDE info (fast, local)
         self.load_ides().await;
-
-        // Load initial registry data
-        self.fetch_registry().await;
-
         Ok(())
+    }
+
+    /// Spawn a background task to fetch the registry. Non-blocking.
+    pub fn start_registry_fetch(&mut self) {
+        self.state.registry_loading = true;
+        self.state.registry_error = None;
+        self.state.loading_tick = 0;
+
+        let source = self.state.registry_source;
+        let (tx, rx) = oneshot::channel();
+        self.registry_rx = Some(rx);
+
+        tokio::spawn(async move {
+            let client = match source {
+                RegistrySource::Official => OfficialRegistryClient::v01(),
+                RegistrySource::Legacy => OfficialRegistryClient::v0(),
+            };
+            let result = client.list_servers().await.map_err(|e| e.to_string());
+            let _ = tx.send(result);
+        });
+    }
+
+    /// Poll for completed async tasks. Call each tick in the event loop.
+    pub fn poll_tasks(&mut self) {
+        if self.state.registry_loading {
+            self.state.loading_tick = self.state.loading_tick.wrapping_add(1);
+        }
+
+        if let Some(rx) = &mut self.registry_rx {
+            match rx.try_recv() {
+                Ok(result) => {
+                    match result {
+                        Ok(servers) => {
+                            let latest = deduplicate_latest(&servers);
+                            self.state.registry_servers = servers;
+                            self.state.registry_servers_latest = latest;
+                            self.state.selected_registry_index = 0;
+                        }
+                        Err(e) => {
+                            self.state.registry_error = Some(e);
+                        }
+                    }
+                    self.state.registry_loading = false;
+                    self.registry_rx = None;
+                }
+                Err(oneshot::error::TryRecvError::Empty) => {
+                    // Still loading, nothing to do
+                }
+                Err(oneshot::error::TryRecvError::Closed) => {
+                    // Sender dropped without sending — treat as error
+                    self.state.registry_error =
+                        Some("Registry fetch task failed unexpectedly".to_string());
+                    self.state.registry_loading = false;
+                    self.registry_rx = None;
+                }
+            }
+        }
     }
 
     async fn load_ides(&mut self) {
@@ -49,28 +103,6 @@ impl App {
         self.state.ides = ides;
     }
 
-    async fn fetch_registry(&mut self) {
-        self.state.registry_loading = true;
-        self.state.registry_error = None;
-
-        let result = match self.state.registry_source {
-            RegistrySource::Official => self.official_registry.list_servers().await,
-            RegistrySource::Legacy => self.legacy_registry.list_servers().await,
-        };
-
-        match result {
-            Ok(servers) => {
-                self.state.registry_servers = servers;
-                self.state.selected_registry_index = 0;
-            }
-            Err(e) => {
-                self.state.registry_error = Some(e.to_string());
-            }
-        }
-
-        self.state.registry_loading = false;
-    }
-
     fn search_registry(&mut self, query: &str) {
         if query.is_empty() {
             self.state.search_results.clear();
@@ -78,9 +110,12 @@ impl App {
         }
 
         let query_lower = query.to_lowercase();
-        self.state.search_results = self
-            .state
-            .registry_servers
+        let source = if self.state.show_all_versions {
+            &self.state.registry_servers
+        } else {
+            &self.state.registry_servers_latest
+        };
+        self.state.search_results = source
             .iter()
             .filter(|s| {
                 s.name.to_lowercase().contains(&query_lower)
@@ -258,10 +293,19 @@ impl App {
             }
             KeyCode::Char('s') => {
                 self.state.registry_source = self.state.registry_source.toggle();
-                self.fetch_registry().await;
+                self.start_registry_fetch();
             }
             KeyCode::Char('r') => {
-                self.fetch_registry().await;
+                self.start_registry_fetch();
+            }
+            KeyCode::Char('v') => {
+                self.state.show_all_versions = !self.state.show_all_versions;
+                self.state.selected_registry_index = 0;
+                // Re-run search if active
+                if !self.state.search_query.is_empty() {
+                    let query = self.state.search_query.clone();
+                    self.search_registry(&query);
+                }
             }
             KeyCode::Up => {
                 if self.state.selected_registry_index > 0 {
@@ -559,4 +603,61 @@ impl Default for App {
     fn default() -> Self {
         Self::new()
     }
+}
+
+/// Compare two version strings using semver-like logic.
+/// Returns Ordering::Greater if a > b.
+fn compare_versions(a: &str, b: &str) -> std::cmp::Ordering {
+    let parse_segments = |s: &str| -> Vec<u64> {
+        s.split('.')
+            .map(|seg| seg.parse::<u64>().unwrap_or(0))
+            .collect()
+    };
+
+    let a_segs = parse_segments(a);
+    let b_segs = parse_segments(b);
+
+    let max_len = a_segs.len().max(b_segs.len());
+    for i in 0..max_len {
+        let av = a_segs.get(i).copied().unwrap_or(0);
+        let bv = b_segs.get(i).copied().unwrap_or(0);
+        match av.cmp(&bv) {
+            std::cmp::Ordering::Equal => continue,
+            other => return other,
+        }
+    }
+
+    // If numeric comparison is equal, fall back to string comparison
+    a.cmp(b)
+}
+
+/// Deduplicate servers by name, keeping only the latest version of each.
+fn deduplicate_latest(servers: &[RegistryServer]) -> Vec<RegistryServer> {
+    let mut best: HashMap<String, &RegistryServer> = HashMap::new();
+
+    for server in servers {
+        let entry = best.entry(server.name.clone());
+        entry
+            .and_modify(|existing| {
+                let existing_ver = existing.version.as_deref().unwrap_or("0.0.0");
+                let new_ver = server.version.as_deref().unwrap_or("0.0.0");
+                if compare_versions(new_ver, existing_ver) == std::cmp::Ordering::Greater {
+                    *existing = server;
+                }
+            })
+            .or_insert(server);
+    }
+
+    // Preserve original ordering (order of first appearance)
+    let mut seen = std::collections::HashSet::new();
+    servers
+        .iter()
+        .filter_map(|s| {
+            if seen.insert(s.name.clone()) {
+                best.get(&s.name).map(|&s| s.clone())
+            } else {
+                None
+            }
+        })
+        .collect()
 }

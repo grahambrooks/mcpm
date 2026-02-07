@@ -85,6 +85,13 @@ pub struct AppState {
     pub status_message: Option<String>,
     pub show_help: bool,
     pub should_quit: bool,
+
+    // Async loading state
+    pub loading_tick: u64,
+
+    // Version filtering
+    pub show_all_versions: bool,
+    pub registry_servers_latest: Vec<RegistryServer>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -134,18 +141,16 @@ impl AppState {
     }
 
     pub fn current_registry_server(&self) -> Option<&RegistryServer> {
-        if self.search_query.is_empty() {
-            self.registry_servers.get(self.selected_registry_index)
-        } else {
-            self.search_results.get(self.selected_registry_index)
-        }
+        self.displayed_servers().get(self.selected_registry_index)
     }
 
     pub fn displayed_servers(&self) -> &[RegistryServer] {
-        if self.search_query.is_empty() {
+        if !self.search_query.is_empty() {
+            &self.search_results
+        } else if self.show_all_versions {
             &self.registry_servers
         } else {
-            &self.search_results
+            &self.registry_servers_latest
         }
     }
 }
