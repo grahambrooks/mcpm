@@ -426,10 +426,9 @@ impl RegistryClient for OfficialRegistryClient {
     async fn list_servers(&self) -> Result<Vec<RegistryServer>> {
         let mut all_servers = Vec::new();
         let mut cursor: Option<String> = None;
-        let max_pages = 5;
         let source_name = self.display_name.to_string();
 
-        for _ in 0..max_pages {
+        loop {
             let page = self.fetch_page(cursor.as_deref(), None).await?;
 
             all_servers.extend(

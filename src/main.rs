@@ -20,6 +20,10 @@ struct Args {
     /// Enable debug logging
     #[arg(short, long)]
     debug: bool,
+
+    /// Jump directly to a specific MCP server by name
+    #[arg(short, long)]
+    server: Option<String>,
 }
 
 #[tokio::main]
@@ -45,7 +49,7 @@ async fn main() -> anyhow::Result<()> {
     let mut terminal = Terminal::new(backend)?;
 
     // Create and initialize app
-    let mut app = App::new();
+    let mut app = App::new(args.server);
     if let Err(e) = app.init().await {
         // Restore terminal before printing error
         disable_raw_mode()?;

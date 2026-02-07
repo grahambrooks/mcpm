@@ -92,6 +92,9 @@ pub struct AppState {
     // Version filtering
     pub show_all_versions: bool,
     pub registry_servers_latest: Vec<RegistryServer>,
+
+    // CLI target: jump to this server once the registry loads
+    pub target_server: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]

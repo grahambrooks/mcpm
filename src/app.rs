@@ -16,9 +16,11 @@ pub struct App {
 }
 
 impl App {
-    pub fn new() -> Self {
+    pub fn new(target_server: Option<String>) -> Self {
+        let mut state = AppState::new();
+        state.target_server = target_server;
         Self {
-            state: AppState::new(),
+            state,
             ide_manager: create_ide_manager(),
             registry_rx: None,
         }
@@ -65,6 +67,7 @@ impl App {
                             self.state.registry_servers = servers;
                             self.state.registry_servers_latest = latest;
                             self.state.selected_registry_index = 0;
+                            self.navigate_to_target_server();
                         }
                         Err(e) => {
                             self.state.registry_error = Some(e);
@@ -83,6 +86,45 @@ impl App {
                     self.state.registry_loading = false;
                     self.registry_rx = None;
                 }
+            }
+        }
+    }
+
+    /// If a target server was specified via CLI, find it and navigate to its detail view.
+    fn navigate_to_target_server(&mut self) {
+        let name = match self.state.target_server.take() {
+            Some(n) => n,
+            None => return,
+        };
+
+        let name_lower = name.to_lowercase();
+        let server = self
+            .state
+            .registry_servers_latest
+            .iter()
+            .find(|s| s.name.to_lowercase() == name_lower)
+            .or_else(|| {
+                self.state
+                    .registry_servers_latest
+                    .iter()
+                    .find(|s| s.name.to_lowercase().contains(&name_lower))
+            })
+            .or_else(|| {
+                self.state
+                    .registry_servers_latest
+                    .iter()
+                    .find(|s| fuzzy_match(&name_lower, &s.name.to_lowercase()))
+            })
+            .cloned();
+
+        match server {
+            Some(s) => {
+                self.state.selected_server = Some(s);
+                self.state.screen = Screen::ServerDetail;
+            }
+            None => {
+                self.state.status_message =
+                    Some(format!("Server '{}' not found in registry", name));
             }
         }
     }
@@ -115,15 +157,31 @@ impl App {
         } else {
             &self.state.registry_servers_latest
         };
-        self.state.search_results = source
+
+        let mut scored: Vec<(i32, &RegistryServer)> = source
             .iter()
-            .filter(|s| {
-                s.name.to_lowercase().contains(&query_lower)
-                    || s.display_name().to_lowercase().contains(&query_lower)
-                    || s.description.to_lowercase().contains(&query_lower)
+            .filter_map(|s| {
+                let name = s.name.to_lowercase();
+                let display = s.display_name().to_lowercase();
+                let desc = s.description.to_lowercase();
+
+                // Exact substring matches rank highest
+                if name.contains(&query_lower) || display.contains(&query_lower) {
+                    return Some((0, s));
+                }
+                if desc.contains(&query_lower) {
+                    return Some((1, s));
+                }
+                // Fuzzy subsequence match on name/display_name
+                if fuzzy_match(&query_lower, &name) || fuzzy_match(&query_lower, &display) {
+                    return Some((2, s));
+                }
+                None
             })
-            .cloned()
             .collect();
+
+        scored.sort_by_key(|(score, _)| *score);
+        self.state.search_results = scored.into_iter().map(|(_, s)| s.clone()).collect();
         self.state.selected_registry_index = 0;
     }
 
@@ -601,8 +659,19 @@ impl App {
 
 impl Default for App {
     fn default() -> Self {
-        Self::new()
+        Self::new(None)
     }
+}
+
+/// Returns true if all characters in `query` appear in `target` in order.
+fn fuzzy_match(query: &str, target: &str) -> bool {
+    let mut target_chars = target.chars();
+    for qc in query.chars() {
+        if !target_chars.any(|tc| tc == qc) {
+            return false;
+        }
+    }
+    true
 }
 
 /// Compare two version strings using semver-like logic.
@@ -827,5 +896,47 @@ mod tests {
         assert_eq!(result[0].version.as_deref(), Some("3.0.0"));
         assert_eq!(result[1].name, "bar");
         assert_eq!(result[2].name, "baz");
+    }
+
+    // --- fuzzy_match tests ---
+
+    #[test]
+    fn fuzzy_match_exact() {
+        assert!(fuzzy_match("filesystem", "filesystem"));
+    }
+
+    #[test]
+    fn fuzzy_match_subsequence() {
+        assert!(fuzzy_match("fs", "filesystem"));
+        assert!(fuzzy_match("flsm", "filesystem"));
+        assert!(fuzzy_match("fst", "filesystem"));
+    }
+
+    #[test]
+    fn fuzzy_match_single_char() {
+        assert!(fuzzy_match("f", "filesystem"));
+    }
+
+    #[test]
+    fn fuzzy_match_empty_query() {
+        assert!(fuzzy_match("", "anything"));
+    }
+
+    #[test]
+    fn fuzzy_match_no_match() {
+        assert!(!fuzzy_match("xyz", "filesystem"));
+        assert!(!fuzzy_match("sf", "filesystem")); // wrong order
+    }
+
+    #[test]
+    fn fuzzy_match_query_longer_than_target() {
+        assert!(!fuzzy_match("filesystems", "fs"));
+    }
+
+    #[test]
+    fn fuzzy_match_case_sensitive() {
+        // fuzzy_match itself is case-sensitive; caller lowercases both
+        assert!(!fuzzy_match("FS", "filesystem"));
+        assert!(fuzzy_match("fs", "filesystem"));
     }
 }
