@@ -24,7 +24,7 @@ metadata:
 
 spec:
   type: tool
-  owner: group:development
+  owner: user:grahambrooks
   lifecycle: active
 
   dependsOn:
@@ -48,7 +48,6 @@ metadata:
 spec:
   type: internal
   lifecycle: active
-  owner: group:development
+  owner: user:grahambrooks
   definition:
     $text: ./src/registry/traits.rs
-
