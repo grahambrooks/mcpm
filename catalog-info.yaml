@@ -1,0 +1,54 @@
+apiVersion: backstage.io/v1alpha1
+kind: Component
+metadata:
+  name: mcpm
+  title: MCPM - Model Context Protocol Package Manager
+  description: A terminal user interface (TUI) for managing Model Context Protocol (MCP) servers across different IDEs
+  tags:
+    - rust
+    - tui
+    - terminal
+    - mcp
+    - package-manager
+    - developertools
+  links:
+    - url: https://modelcontextprotocol.io
+      title: MCP Documentation
+      icon: dashboard
+    - url: https://ratatui.rs
+      title: Ratatui Documentation
+      icon: dashboard
+  annotations:
+    github.com/project-slug: dev/projects/mcpm
+    backstage.io/techdocs-ref: dir:.
+
+spec:
+  type: tool
+  owner: group:development
+  lifecycle: active
+
+  dependsOn:
+    - resource:default/mcp-registry
+
+  providesApis:
+    - mcp-server-manager
+
+  system: mcp-ecosystem
+
+  subcomponentOf: mcp-tools
+
+---
+apiVersion: backstage.io/v1alpha1
+kind: API
+metadata:
+  name: mcp-server-manager
+  title: MCP Server Manager API
+  description: API for managing Model Context Protocol servers
+
+spec:
+  type: internal
+  lifecycle: active
+  owner: group:development
+  definition:
+    $text: ./src/registry/traits.rs
+
